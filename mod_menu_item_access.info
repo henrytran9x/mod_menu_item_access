@@ -1,0 +1,6 @@
+name = Menu item access
+description = Provide form control role, path, user permisson menu item access
+core = 7.x
+version = 1.0
+dependencies[] = menu
+package = Custom module - Required

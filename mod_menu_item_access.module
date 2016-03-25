@@ -1,0 +1,204 @@
+<?php
+
+/**
+ * Shows this menu item on every page except the listed pages.
+ */
+define('MENU_ITEM_VISIBILITY_NOTLISTED', 0);
+
+/**
+ * Shows this menu item on only the listed pages.
+ */
+define('MENU_ITEM_VISIBILITY_LISTED', 1);
+/**
+ * Implements hook_permission().
+ */
+
+/**
+ * Users cannot control whether or not they see this menu item.
+ */
+define('MENU_ITEM_CUSTOM_FIXED', 0);
+
+/**
+ *  Shows this menu item by default, but lets individual users hide it.
+ */
+define('MENU_ITEM_CUSTOM_ENABLED', 1);
+
+/**
+ * Hides this menu item by default but lets individual users show it.
+ */
+define('MENU_ITEM_CUSTOM_DISABLED', 2);
+
+function mod_menu_item_access_permission() {
+  return array(
+    'administer menu item access' => array(
+      'title' => t('Administer menu item access'),
+      'description' => t('Administer menu item access'),
+    ),
+  );
+}
+
+/**
+ * Implements hook_form_FORM_ID_alter().
+ *
+ * Adds menu attribute options to the edit menu item form.
+ *
+ * @see menu_edit_item()
+ * @see _menu_attributes_form_alter()
+ * @see menu_attributes_form_menu_edit_item_submit()
+ */
+function mod_menu_item_access_form_menu_edit_item_alter(&$form, $form_state) {
+  $item = $form['original_item']['#value'];
+  if(!user_access('administer menu item access')) {
+    return;
+  }
+  _menu_item_access_form_alter($form, $item, $form);
+}
+
+function _menu_item_access_form_alter(array &$form, array $item = array(), array &$complete_form)
+{
+
+  $form['options']['visibility'] = array(
+    '#type' => 'vertical_tabs',
+    '#prefix' => '<h3>'.t('Visibility settings').'</h3>'
+  );
+
+  // Per-path visibility.
+  $form['options']['visibility']['path'] = array(
+    '#type' => 'fieldset',
+    '#title' => t('Pages'),
+    '#collapsible' => TRUE,
+    '#collapsed' => TRUE,
+    '#weight' => 20,
+  );
+
+  if(isset($item['options']['visibility']))
+  {
+    $visibility = (object)$item['options']['visibility'];
+  }
+
+  $options = array(
+    MENU_ITEM_VISIBILITY_NOTLISTED => t('All pages except those listed'),
+    MENU_ITEM_VISIBILITY_LISTED => t('Only the listed pages'),
+  );
+  $description = t("Specify pages by using their paths. Enter one path per line. The '*' character is a wildcard. Example paths are %blog for the blog page and %blog-wildcard for every personal blog. %front is the front page.", array('%blog' => 'blog', '%blog-wildcard' => 'blog/*', '%front' => '<front>'));
+  $title = t('Pages');
+  $form['options']['visibility']['path']['visibility'] = array(
+    '#type' => 'radios',
+    '#title' => t('Show menu item on specific pages'),
+    '#options' => $options,
+    '#default_value' => isset($visibility->pages['visibility']) ? $visibility->pages['visibility'] : MENU_ITEM_VISIBILITY_NOTLISTED,
+  );
+  $form['options']['visibility']['path']['pages'] = array(
+    '#type' => 'textarea',
+    '#title' => '<span class="element-invisible">' . $title . '</span>',
+    '#default_value' => isset($visibility->pages['paths']) ? $visibility->pages['paths'] : '',
+    '#description' => $description,
+  );
+
+  // Per-Role visibility
+  $form['options']['visibility']['role'] = array(
+    '#type' => 'fieldset',
+    '#title' => t('Roles'),
+    '#collapsible' => TRUE,
+    '#collapsed' => TRUE,
+    '#weight' => 21,
+  );
+
+  $form['options']['visibility']['role']['roles'] = array(
+    '#type' => 'checkboxes',
+    '#title' => t('Show menu link for specific roles'),
+    '#default_value' => isset($visibility->roles) ? $visibility->roles : array(),
+    '#options' => array_map('check_plain',user_roles()),
+    '#description' => t('Show this menu link only for the selected role(s). If you select no roles, the menu link will be visible to all users.'),
+  );
+
+
+  $form['#submit'][] = 'mod_menu_item_access_form_submit';
+}
+
+function mod_menu_item_access_form_submit(&$form,&$form_state)
+{
+  $item = &$form_state['values'];
+  $visibility = array(
+    'pages' => array(
+      'visibility' => $item['visibility'],
+      'paths' => $item['pages']
+    ),
+    'roles' => $item['roles'],
+  );
+  if(isset($visibility))
+  {
+    $item['options']['visibility'] = $visibility;
+  }
+  menu_link_save($item);
+}
+
+/**
+ * hook_translated_menu_link_alter()
+ * @param $item
+ */
+
+function mod_menu_item_access_menu_link_alter(&$item) {
+  // Flag a link to be altered by hook_translated_menu_link_alter(), but only
+  // if it is derived from a menu router item; i.e., do not alter a custom
+  // menu link pointing to the same path that has been created by a user.
+  $item['options']['alter'] = TRUE;
+}
+
+/**
+ * Implements hook_translated_menu_link_alter().
+ */
+function mod_menu_item_access_translated_menu_link_alter(&$item, $map) {
+  global $user,$theme_key;
+   if(!path_is_admin(current_path()) && isset($item['options']['alter']) && $item['options']['alter'] == TRUE){
+    $enabled = true;
+    $options = $item['options'];
+    if (isset($options['visibility'])) {
+      $visibility = (object) $options['visibility'];
+      // Per by Path
+      if(isset($visibility->pages) && !empty($visibility->pages['paths'])){
+        $pages = isset($visibility->pages['paths']) ? explode("\n",$visibility->pages['paths']) : '';
+        if(isset($pages))
+        {
+          foreach($pages as $key => $page){
+            // Match path if necessary.
+              // Convert path to lowercase. This allows comparison of the same path
+              // with different case. Ex: /Page, /page, /PAGE.
+                $page = drupal_strtolower($page);
+
+                // Convert the Drupal path to lowercase
+                $path = drupal_strtolower(drupal_get_path_alias($_GET['q']));
+                // Compare the lowercase internal and lowercase path alias (if any).
+                $page_match = drupal_match_path($path, $page);
+                if ($path != $_GET['q']) {
+                  $page_match = $page_match || drupal_match_path($_GET['q'], $page);
+                }
+                $enabled = !($visibility->pages['visibility'] xor $page_match);
+
+          }
+          if ($visibility->pages['visibility'] == MENU_ITEM_VISIBILITY_LISTED && empty($visibility->pages['paths'])) {
+            $enabled = TRUE;
+          }
+        }
+        else{
+          $enabled = TRUE;
+        }
+      }
+      // Per by Roles
+      elseif (isset($visibility->roles)) {
+        // No match.
+        if(!array_intersect($visibility->roles, array_keys($user->roles))) {
+          $enabled = FALSE;
+        }
+        elseif(count(array_count_values($visibility->roles)) == 1 ){
+          $enabled = TRUE;
+        }
+      }
+      if(!$enabled){
+        $item['access'] = FALSE;
+      }
+    }
+  }
+}
+
+
