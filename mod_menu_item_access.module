@@ -150,6 +150,7 @@ function mod_menu_item_access_menu_link_alter(&$item) {
  */
 function mod_menu_item_access_translated_menu_link_alter(&$item, $map) {
   global $user,$theme_key;
+
    if(!path_is_admin(current_path()) && isset($item['options']['alter']) && $item['options']['alter'] == TRUE){
     $enabled = true;
     $options = $item['options'];
@@ -158,14 +159,13 @@ function mod_menu_item_access_translated_menu_link_alter(&$item, $map) {
       // Per by Path
       if(isset($visibility->pages) && !empty($visibility->pages['paths'])){
         $pages = isset($visibility->pages['paths']) ? explode("\n",$visibility->pages['paths']) : '';
-        if(isset($pages))
+        if(!empty($visibility->pages))
         {
           foreach($pages as $key => $page){
             // Match path if necessary.
               // Convert path to lowercase. This allows comparison of the same path
               // with different case. Ex: /Page, /page, /PAGE.
                 $page = drupal_strtolower($page);
-
                 // Convert the Drupal path to lowercase
                 $path = drupal_strtolower(drupal_get_path_alias($_GET['q']));
                 // Compare the lowercase internal and lowercase path alias (if any).
@@ -173,27 +173,35 @@ function mod_menu_item_access_translated_menu_link_alter(&$item, $map) {
                 if ($path != $_GET['q']) {
                   $page_match = $page_match || drupal_match_path($_GET['q'], $page);
                 }
-                $enabled = !($visibility->pages['visibility'] xor $page_match);
+                if($page_match && $visibility->pages['visibility'] == MENU_ITEM_VISIBILITY_NOTLISTED){
 
-          }
-          if ($visibility->pages['visibility'] == MENU_ITEM_VISIBILITY_LISTED && empty($visibility->pages['paths'])) {
-            $enabled = TRUE;
+                  $enabled = FALSE;
+                }
+                if ($page_match && $visibility->pages['visibility'] == MENU_ITEM_VISIBILITY_LISTED) {
+                    $enabled = TRUE;
+                }
           }
         }
-        else{
+        elseif(empty($visibility->pages)){
           $enabled = TRUE;
         }
       }
       // Per by Roles
+
       elseif (isset($visibility->roles)) {
         // No match.
-        if(!array_intersect($visibility->roles, array_keys($user->roles))) {
-          $enabled = FALSE;
-        }
-        elseif(count(array_count_values($visibility->roles)) == 1 ){
-          $enabled = TRUE;
+        if(array_sum($visibility->roles) == 0)
+        {
+           $enabled = TRUE;
+        }else {
+          if (!array_intersect($visibility->roles, array_keys($user->roles))) {
+            $enabled = FALSE;
+          } elseif (count(array_count_values($visibility->roles)) == 1) {
+            $enabled = TRUE;
+          }
         }
       }
+
       if(!$enabled){
         $item['access'] = FALSE;
       }
